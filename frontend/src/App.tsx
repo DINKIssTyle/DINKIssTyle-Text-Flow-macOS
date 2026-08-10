@@ -119,6 +119,16 @@ const aiHUDMaxHeight = 620;
 const isMacOS = System.IsMac();
 const isWindows = System.IsWindows();
 
+// Keep WebKit/macOS writing assistance UI out of the app's editable fields.
+// `writingsuggestions` is intentionally lowercase because React 18 does not
+// expose the newer global HTML attribute in its TypeScript definitions yet.
+const textInputAssistanceDisabled = {
+    autoComplete: 'off',
+    autoCorrect: 'off',
+    spellCheck: false,
+    writingsuggestions: 'false',
+} as const;
+
 const emptyInput: SnippetInput = {
     labelId: 0,
     shortcut: '',
@@ -3167,6 +3177,7 @@ function MainApp({ hudMode }: { hudMode: 'ai' | 'ocr' | null }) {
                             onSubmit={submitAIPrompt}
                         >
                             <textarea
+                                {...textInputAssistanceDisabled}
                                 ref={aiPromptRef}
                                 autoFocus
                                 value={aiPrompt}
@@ -3322,6 +3333,7 @@ function MainApp({ hudMode }: { hudMode: 'ai' | 'ocr' | null }) {
                                 </button>
                             </div>
                             <input
+                                {...textInputAssistanceDisabled}
                                 className="search-input"
                                 value={query}
                                 placeholder={t('searchSnippets')}
@@ -3368,7 +3380,7 @@ function MainApp({ hudMode }: { hudMode: 'ai' | 'ocr' | null }) {
                                     <div className="label-detail-form">
                                         <label>
                                             {t('name')}
-                                            <input value={labelForm.name} onChange={(event) => setLabelForm({ ...labelForm, name: event.target.value })} />
+                                            <input {...textInputAssistanceDisabled} value={labelForm.name} onChange={(event) => setLabelForm({ ...labelForm, name: event.target.value })} />
                                         </label>
                                         <label>
                                             {t('color')}
@@ -3376,7 +3388,7 @@ function MainApp({ hudMode }: { hudMode: 'ai' | 'ocr' | null }) {
                                         </label>
                                         <label className="label-description-field">
                                             {t('description')}
-                                            <textarea value={labelForm.description} onChange={(event) => setLabelForm({ ...labelForm, description: event.target.value })} />
+                                            <textarea {...textInputAssistanceDisabled} value={labelForm.description} onChange={(event) => setLabelForm({ ...labelForm, description: event.target.value })} />
                                         </label>
                                     </div>
                                     <div className="modal-actions detail-actions">
@@ -3543,11 +3555,11 @@ function MainApp({ hudMode }: { hudMode: 'ai' | 'ocr' | null }) {
                                             <div className="prompt-app-fields">
                                                 <label>
                                                     {t('appName')}
-                                                    <input value={profile.appName} onChange={(event) => updatePromptProfile(profile.id, { appName: event.target.value })} />
+                                                    <input {...textInputAssistanceDisabled} value={profile.appName} onChange={(event) => updatePromptProfile(profile.id, { appName: event.target.value })} />
                                                 </label>
                                                 <label>
                                                     {t('bundleId')}
-                                                    <input value={profile.appBundleId} onChange={(event) => updatePromptProfile(profile.id, { appBundleId: event.target.value })} placeholder="com.apple.Terminal" />
+                                                    <input {...textInputAssistanceDisabled} value={profile.appBundleId} onChange={(event) => updatePromptProfile(profile.id, { appBundleId: event.target.value })} placeholder="com.apple.Terminal" />
                                                 </label>
                                                 <button type="button" onClick={() => openAppPicker({ kind: 'profile', profileID: profile.id })}>{t('change')}</button>
                                             </div>
@@ -3581,6 +3593,7 @@ function MainApp({ hudMode }: { hudMode: 'ai' | 'ocr' | null }) {
                         </div>
                         <form className="ai-prompt-form" onSubmit={submitAIPrompt}>
                             <textarea
+                                {...textInputAssistanceDisabled}
                                 ref={aiPromptRef}
                                 value={aiPrompt}
                                 onChange={(event) => updateAIPrompt(event.target.value)}
@@ -4011,6 +4024,7 @@ function MainApp({ hudMode }: { hudMode: 'ai' | 'ocr' | null }) {
                                                 <label>
                                                     {t('endpointOrHostPort')}
                                                     <input
+                                                        {...textInputAssistanceDisabled}
                                                         value={aiSettings.endpoint}
                                                         onChange={(event) => setAISettings({ ...aiSettings, endpoint: event.target.value })}
                                                         placeholder="http://localhost:1234"
@@ -4020,6 +4034,7 @@ function MainApp({ hudMode }: { hudMode: 'ai' | 'ocr' | null }) {
                                                     {t('model')}
                                                     <span className="model-setting-control">
                                                         <input
+                                                            {...textInputAssistanceDisabled}
                                                             value={aiSettings.model}
                                                             onChange={(event) => setAISettings({ ...aiSettings, model: event.target.value })}
                                                             placeholder={t('modelPlaceholder')}
@@ -4039,6 +4054,7 @@ function MainApp({ hudMode }: { hudMode: 'ai' | 'ocr' | null }) {
                                                 <label>
                                                     {t('apiKey')}
                                                     <input
+                                                        {...textInputAssistanceDisabled}
                                                         value={aiSettings.apiKey}
                                                         onChange={(event) => setAISettings({ ...aiSettings, apiKey: event.target.value })}
                                                         placeholder={t('optional')}
@@ -4112,6 +4128,7 @@ function MainApp({ hudMode }: { hudMode: 'ai' | 'ocr' | null }) {
                                             {t('pasteReplacementBundleIds')}
                                             <div className="bundle-list-control">
                                                 <textarea
+                                                    {...textInputAssistanceDisabled}
                                                     value={formatBundleIdList(aiSettings.pasteReplacementBundleIds || [])}
                                                     onChange={(event) => setAISettings({
                                                         ...aiSettings,
@@ -4728,6 +4745,7 @@ function MainApp({ hudMode }: { hudMode: 'ai' | 'ocr' | null }) {
                                 <span>{t('shortcut')}</span>
                                 <span className="shortcut-input-wrap">
                                     <input
+                                        {...textInputAssistanceDisabled}
                                         ref={shortcutInputRef}
                                         value={form.shortcut}
                                         onChange={(event) => {
@@ -4756,12 +4774,13 @@ function MainApp({ hudMode }: { hudMode: 'ai' | 'ocr' | null }) {
                             </label>
                             <label className="title-field">
                                 {t('title')}
-                                <input value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder={t('titlePlaceholder')} />
+                                <input {...textInputAssistanceDisabled} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder={t('titlePlaceholder')} />
                             </label>
                         </div>
                         <label className="content-field">
                             {t('content')}
                             <textarea
+                                {...textInputAssistanceDisabled}
                                 ref={snippetContentRef}
                                 value={form.content}
                                 onChange={(event) => updateSnippetContent(event.target.value)}
@@ -4897,6 +4916,7 @@ function PromptRuleEditor({ rule, onChange, t }: { rule: AIPromptRule; onChange:
             <label>
                 {t('promptWhenTextSelected')}
                 <textarea
+                    {...textInputAssistanceDisabled}
                     value={rule.selectedTextPrompt}
                     onChange={(event) => onChange({ selectedTextPrompt: event.target.value })}
                     placeholder={t('selectedTextPromptPlaceholder')}
@@ -4906,6 +4926,7 @@ function PromptRuleEditor({ rule, onChange, t }: { rule: AIPromptRule; onChange:
             <label>
                 {t('promptWhenNoTextSelected')}
                 <textarea
+                    {...textInputAssistanceDisabled}
                     value={rule.noSelectionPrompt}
                     onChange={(event) => onChange({ noSelectionPrompt: event.target.value })}
                     placeholder={t('noTextPromptPlaceholder')}
