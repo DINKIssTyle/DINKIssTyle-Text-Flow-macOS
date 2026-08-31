@@ -324,7 +324,6 @@ func (a *App) beginScreenRegionCaptureOverlay() error {
 					break
 				}
 			}
-			captureWindow.SetAlwaysOnTop(true)
 			captureWindow.Show()
 			captureWindows = append(captureWindows, captureWindow)
 			captureWindowByID[screen.ID] = captureWindow
@@ -334,6 +333,11 @@ func (a *App) beginScreenRegionCaptureOverlay() error {
 				appInst.Show()
 			}
 			captureWindows[0].Focus()
+			for _, captureWindow := range captureWindows {
+				if !platform.SetPinShotWindowAboveMenuBar(captureWindow.NativeWindow()) {
+					captureWindow.SetAlwaysOnTop(true)
+				}
+			}
 		}
 	})
 	if overlayErr != nil {

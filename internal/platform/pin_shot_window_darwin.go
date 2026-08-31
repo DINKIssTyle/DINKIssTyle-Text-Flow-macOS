@@ -157,6 +157,21 @@ static bool setPinShotWindowDisplayBounds(void* nativeWindow, uint32_t displayID
 	return true;
 }
 
+static bool setPinShotWindowAboveMenuBar(void* nativeWindow) {
+	if (nativeWindow == NULL) {
+		return false;
+	}
+	if (![NSThread isMainThread]) {
+		__block bool applied = false;
+		dispatch_sync(dispatch_get_main_queue(), ^{
+			applied = setPinShotWindowAboveMenuBar(nativeWindow);
+		});
+		return applied;
+	}
+	((NSWindow*)nativeWindow).level = NSScreenSaverWindowLevel;
+	return true;
+}
+
 static bool setPinShotWindowBounds(
 	void* nativeWindow,
 	int x,
@@ -301,6 +316,10 @@ func SetPinShotWindowDisplayBounds(nativeWindow unsafe.Pointer, screenID string)
 		return false
 	}
 	return bool(C.setPinShotWindowDisplayBounds(nativeWindow, C.uint32_t(displayID)))
+}
+
+func SetPinShotWindowAboveMenuBar(nativeWindow unsafe.Pointer) bool {
+	return bool(C.setPinShotWindowAboveMenuBar(nativeWindow))
 }
 
 func SetPinShotWindowBounds(

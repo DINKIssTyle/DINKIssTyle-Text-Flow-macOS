@@ -15,6 +15,10 @@ func SetPinShotWindowDisplayBounds(unsafe.Pointer, string) bool {
 	return false
 }
 
+func SetPinShotWindowAboveMenuBar(unsafe.Pointer) bool {
+	return false
+}
+
 func SetPinShotWindowBounds(unsafe.Pointer, int, int, int, int) bool {
 	return false
 }

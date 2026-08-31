@@ -159,6 +159,12 @@ func (a *App) createFloatingCapture(
 		captureWindow.SetAlwaysOnTop(true)
 		captureWindow.Show()
 		captureWindow.Focus()
+		// AppKit can constrain a newly shown window by a few pixels to keep its
+		// shadow inside the visible screen frame. Pin Shot must instead place the
+		// captured pixels at the exact coordinates they came from, including when
+		// the selection touches a display edge. Reapply the native frame after the
+		// first Show/Focus cycle so that automatic placement cannot shift it.
+		setWindowBoundsExact(captureWindow, windowBounds)
 	})
 	if captureWindow == nil {
 		a.removeFloatingCapture(id)
