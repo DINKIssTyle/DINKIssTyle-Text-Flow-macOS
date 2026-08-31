@@ -7,6 +7,8 @@ type PinShotSelectionRect struct {
 	Y           int
 	Width       int
 	Height      int
+	PixelX      int
+	PixelY      int
 	PixelWidth  int
 	PixelHeight int
 }

@@ -6,6 +6,7 @@ import (
 	"runtime"
 
 	appservice "dkst-text-flow/internal/app"
+	"dkst-text-flow/internal/windowing"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -30,6 +31,10 @@ var windowsMenuIcon []byte
 var windowsPausedMenuIcon []byte
 
 func main() {
+	// Wails does not expose WKWebViewConfiguration.writingToolsBehavior yet.
+	// Install the macOS hook before Wails creates any webviews.
+	windowing.DisableWritingTools()
+
 	if runtime.GOOS == "windows" {
 		menuIcon = windowsMenuIcon
 		pausedMenuIcon = windowsPausedMenuIcon

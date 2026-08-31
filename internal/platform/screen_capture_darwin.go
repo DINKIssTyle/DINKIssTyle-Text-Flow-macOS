@@ -12,6 +12,7 @@ package platform
 #import <ScreenCaptureKit/ScreenCaptureKit.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 typedef struct PinShotCaptureData {
 	unsigned char* bytes;
@@ -38,33 +39,77 @@ static CGImageRef pinShotCaptureDisplayRegion(
 		dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
 		__block CGImageRef capturedImage = NULL;
 		__block char* asynchronousError = NULL;
-		SCScreenshotConfiguration* configuration = [[SCScreenshotConfiguration alloc] init];
-		configuration.width = pixelWidth;
-		configuration.height = pixelHeight;
-		configuration.showsCursor = NO;
-		configuration.displayIntent = SCScreenshotDisplayIntentLocal;
-		configuration.dynamicRange = SCScreenshotDynamicRangeSDR;
+		__block SCContentFilter* filter = nil;
+		__block SCScreenshotConfiguration* configuration = nil;
 
-		[SCScreenshotManager
-			captureScreenshotWithRect:sourceRect
-			configuration:configuration
-			completionHandler:^(SCScreenshotOutput* output, NSError* captureError) {
+		[SCShareableContent
+			getShareableContentExcludingDesktopWindows:NO
+			onScreenWindowsOnly:YES
+			completionHandler:^(SCShareableContent* content, NSError* error) {
 				@autoreleasepool {
-					if (output.sdrImage != NULL) {
-						capturedImage = CGImageRetain(output.sdrImage);
-					} else {
-						asynchronousError = pinShotCopyError(
-							captureError,
-							"screen capture returned no image"
-						);
+					if (error != nil || content == nil) {
+						asynchronousError = pinShotCopyError(error, "unable to enumerate displays");
+						dispatch_semaphore_signal(semaphore);
+						return;
 					}
-					dispatch_semaphore_signal(semaphore);
+					SCDisplay* targetDisplay = nil;
+					for (SCDisplay* display in content.displays) {
+						if (display.displayID == displayID) {
+							targetDisplay = display;
+							break;
+						}
+					}
+					if (targetDisplay == nil) {
+						asynchronousError = strdup("selected display is unavailable");
+						dispatch_semaphore_signal(semaphore);
+						return;
+					}
+
+					filter = [[SCContentFilter alloc] initWithDisplay:targetDisplay excludingWindows:@[]];
+					configuration = [[SCScreenshotConfiguration alloc] init];
+					configuration.width = pixelWidth;
+					configuration.height = pixelHeight;
+					configuration.showsCursor = NO;
+					configuration.ignoreShadows = NO;
+					configuration.ignoreClipping = NO;
+					configuration.includeChildWindows = YES;
+					configuration.displayIntent = SCScreenshotDisplayIntentLocal;
+					configuration.dynamicRange = SCScreenshotDynamicRangeSDR;
+
+					CGRect localSourceRect = sourceRect;
+					if (fabs(sourceRect.size.width - targetDisplay.width) < 1.0 &&
+						fabs(sourceRect.size.height - targetDisplay.height) < 1.0) {
+						localSourceRect = CGRectMake(0, 0, targetDisplay.width, targetDisplay.height);
+					} else {
+						localSourceRect.origin.x -= targetDisplay.frame.origin.x;
+						localSourceRect.origin.y -= targetDisplay.frame.origin.y;
+					}
+					configuration.sourceRect = localSourceRect;
+
+					[SCScreenshotManager
+						captureScreenshotWithFilter:filter
+						configuration:configuration
+						completionHandler:^(SCScreenshotOutput* output, NSError* captureError) {
+							@autoreleasepool {
+								if (output.sdrImage != NULL) {
+									capturedImage = CGImageRetain(output.sdrImage);
+								} else {
+									asynchronousError = pinShotCopyError(
+										captureError,
+										"screen capture returned no image"
+									);
+								}
+								dispatch_semaphore_signal(semaphore);
+							}
+						}
+					];
 				}
 			}
 		];
 
 		dispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER);
 		[configuration release];
+		[filter release];
 		dispatch_release(semaphore);
 		if (capturedImage == NULL) {
 			*errorMessage = asynchronousError != NULL
@@ -284,6 +329,20 @@ import (
 )
 
 func CaptureScreenRegion(ctx context.Context, rect ScreenCaptureRect) (ScreenCaptureResult, error) {
+	return captureScreenRegion(ctx, rect, false)
+}
+
+// CaptureScreenSnapshot captures a temporary full-display image without the
+// base64 copy and final-attachment size limit used by CaptureScreenRegion.
+func CaptureScreenSnapshot(ctx context.Context, rect ScreenCaptureRect) (ScreenCaptureResult, error) {
+	return captureScreenRegion(ctx, rect, true)
+}
+
+func captureScreenRegion(
+	ctx context.Context,
+	rect ScreenCaptureRect,
+	temporarySnapshot bool,
+) (ScreenCaptureResult, error) {
 	if rect.DisplayID != "" && rect.Width > 1 && rect.Height > 1 {
 		if err := ctx.Err(); err != nil {
 			return ScreenCaptureResult{Canceled: true}, nil
@@ -316,7 +375,12 @@ func CaptureScreenRegion(ctx context.Context, rect ScreenCaptureRect) (ScreenCap
 		}
 		defer C.free(unsafe.Pointer(captured.bytes))
 		data := C.GoBytes(unsafe.Pointer(captured.bytes), C.int(captured.length))
-		result, err := screenCaptureResultFromPNG(data)
+		var result ScreenCaptureResult
+		if temporarySnapshot {
+			result, err = screenCaptureSnapshotFromPNG(data)
+		} else {
+			result, err = screenCaptureResultFromPNG(data)
+		}
 		if err != nil {
 			return ScreenCaptureResult{}, err
 		}

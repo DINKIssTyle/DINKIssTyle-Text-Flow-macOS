@@ -7,6 +7,14 @@ import "unsafe"
 func ConfigurePinShotWindow(unsafe.Pointer) {
 }
 
+func SetPinShotWindowSnapshot(unsafe.Pointer, []byte) bool {
+	return false
+}
+
+func SetPinShotWindowDisplayBounds(unsafe.Pointer, string) bool {
+	return false
+}
+
 func SetPinShotWindowBounds(unsafe.Pointer, int, int, int, int) bool {
 	return false
 }

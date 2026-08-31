@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"net/url"
-	"os/exec"
 	"runtime"
 	"strings"
 
@@ -39,6 +38,7 @@ type screenCapturePlacement struct {
 	ScreenID       string
 	LogicalBounds  application.Rect
 	PhysicalBounds application.Rect
+	SnapshotBounds application.Rect
 	PixelWidth     int
 	PixelHeight    int
 }
@@ -111,6 +111,7 @@ func (a *App) beginScreenRegionCapture(purpose screenCapturePurpose, sourceProce
 	a.screenCapturePurpose = purpose
 	a.screenCapturePlacement = nil
 	a.screenCaptureWindowByID = nil
+	a.screenCaptureSnapshots = nil
 	a.screenCaptureSourcePID = sourceProcessID
 	a.screenCaptureRestoreAI = restoreAI
 	a.screenCaptureRestoreOCR = restoreOCR
@@ -157,6 +158,7 @@ func (a *App) cancelScreenRegionCapture(restoreHUD bool) {
 		a.screenCapturePurpose = screenCapturePurposeAI
 		a.screenCapturePlacement = nil
 		a.screenCaptureWindowByID = nil
+		a.screenCaptureSnapshots = nil
 		a.screenCaptureSourcePID = 0
 		a.screenCaptureRestoreAI = false
 		a.screenCaptureRestoreOCR = false
@@ -200,6 +202,7 @@ func (a *App) finishScreenRegionCapture(result platform.ScreenCaptureResult, cap
 	a.screenCapturePurpose = screenCapturePurposeAI
 	a.screenCapturePlacement = nil
 	a.screenCaptureWindowByID = nil
+	a.screenCaptureSnapshots = nil
 	a.screenCaptureSourcePID = 0
 	a.screenCaptureRestoreAI = false
 	a.screenCaptureRestoreOCR = false
@@ -276,6 +279,7 @@ func (a *App) beginScreenRegionCaptureOverlay() error {
 
 	var captureWindows []application.Window
 	captureWindowByID := make(map[string]application.Window, len(screens))
+	var overlayErr error
 	application.InvokeSync(func() {
 		for index, screen := range screens {
 			query := url.Values{}
@@ -299,6 +303,7 @@ func (a *App) beginScreenRegionCaptureOverlay() error {
 				Mac: application.MacWindow{
 					DisableShadow: true,
 					Backdrop:      application.MacBackdropTransparent,
+					CornerType:    application.MacWindowCornerTypeSquare,
 					WindowLevel:   application.MacWindowLevelScreenSaver,
 					CollectionBehavior: application.MacWindowCollectionBehaviorCanJoinAllSpaces |
 						application.MacWindowCollectionBehaviorFullScreenAuxiliary,
@@ -306,19 +311,37 @@ func (a *App) beginScreenRegionCaptureOverlay() error {
 			}
 			captureWindow := appInst.Window.NewWithOptions(options)
 			platform.ConfigurePinShotWindow(captureWindow.NativeWindow())
-			setWindowBoundsExact(captureWindow, screen.Bounds)
+			if !platform.SetPinShotWindowDisplayBounds(captureWindow.NativeWindow(), screen.ID) {
+				setWindowBoundsExact(captureWindow, screen.Bounds)
+			}
+			a.screenCaptureMu.Lock()
+			snapshot := a.screenCaptureSnapshots[screen.ID]
+			a.screenCaptureMu.Unlock()
+			if len(snapshot.PNGData) > 0 {
+				if !platform.SetPinShotWindowSnapshot(captureWindow.NativeWindow(), snapshot.PNGData) {
+					captureWindow.Close()
+					overlayErr = errors.New("failed to freeze screen capture overlay")
+					break
+				}
+			}
 			captureWindow.SetAlwaysOnTop(true)
 			captureWindow.Show()
 			captureWindows = append(captureWindows, captureWindow)
 			captureWindowByID[screen.ID] = captureWindow
 		}
-		if len(captureWindows) > 0 {
+		if overlayErr == nil && len(captureWindows) > 0 {
 			if runtime.GOOS == "darwin" {
 				appInst.Show()
 			}
 			captureWindows[0].Focus()
 		}
 	})
+	if overlayErr != nil {
+		for _, captureWindow := range captureWindows {
+			captureWindow.Close()
+		}
+		return overlayErr
+	}
 
 	a.screenCaptureMu.Lock()
 	if a.screenCaptureActive {
@@ -392,6 +415,12 @@ func (a *App) resolveScreenRegionSelection(
 					Width:  resolved.PixelWidth,
 					Height: resolved.PixelHeight,
 				},
+				SnapshotBounds: application.Rect{
+					X:      resolved.PixelX,
+					Y:      resolved.PixelY,
+					Width:  resolved.PixelWidth,
+					Height: resolved.PixelHeight,
+				},
 				PixelWidth:  resolved.PixelWidth,
 				PixelHeight: resolved.PixelHeight,
 			}, nil
@@ -434,11 +463,18 @@ func (a *App) resolveScreenRegionSelection(
 			Width:  physicalRight - physicalLeft,
 			Height: physicalBottom - physicalTop,
 		},
+		SnapshotBounds: application.Rect{
+			X:      physicalLeft - screen.PhysicalBounds.X,
+			Y:      physicalTop - screen.PhysicalBounds.Y,
+			Width:  physicalRight - physicalLeft,
+			Height: physicalBottom - physicalTop,
+		},
 		PixelWidth:  physicalRight - physicalLeft,
 		PixelHeight: physicalBottom - physicalTop,
 	}
 	if placement.LogicalBounds.Width <= 1 || placement.LogicalBounds.Height <= 1 ||
-		placement.PhysicalBounds.Width <= 1 || placement.PhysicalBounds.Height <= 1 {
+		placement.PhysicalBounds.Width <= 1 || placement.PhysicalBounds.Height <= 1 ||
+		placement.SnapshotBounds.Width <= 1 || placement.SnapshotBounds.Height <= 1 {
 		return nil, errors.New("screen capture region is empty")
 	}
 	return placement, nil
@@ -566,9 +602,7 @@ func (a *App) finishOCRProcessing() {
 }
 
 func copyTextToClipboard(text string) error {
-	command := exec.Command("/usr/bin/pbcopy")
-	command.Stdin = strings.NewReader(text)
-	if err := command.Run(); err != nil {
+	if err := platform.WriteClipboardText(text); err != nil {
 		return fmt.Errorf("failed to copy OCR text to the clipboard: %w", err)
 	}
 	return nil

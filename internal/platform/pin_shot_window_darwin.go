@@ -13,6 +13,8 @@ typedef struct PinShotSelectionData {
 	int y;
 	int width;
 	int height;
+	int pixelX;
+	int pixelY;
 	int pixelWidth;
 	int pixelHeight;
 	bool valid;
@@ -41,6 +43,16 @@ static CGFloat pinShotPrimaryScreenHeight(void) {
 		primaryScreen = [NSScreen mainScreen];
 	}
 	return primaryScreen != nil ? primaryScreen.frame.size.height : 0.0;
+}
+
+static NSScreen* pinShotScreenForDisplayID(uint32_t displayID) {
+	for (NSScreen* screen in [NSScreen screens]) {
+		NSNumber* screenNumber = [screen.deviceDescription objectForKey:@"NSScreenNumber"];
+		if (screenNumber != nil && screenNumber.unsignedIntValue == displayID) {
+			return screen;
+		}
+	}
+	return nil;
 }
 
 // Wails creates the native content view one point smaller than the requested
@@ -74,6 +86,75 @@ static void configurePinShotWindow(void* nativeWindow) {
 	contentView.layer.cornerRadius = 0.0;
 	contentView.layer.masksToBounds = NO;
 	pinShotLayoutWebView(window);
+}
+
+// Keep the pixels that were present before Text Flow became active behind the
+// transparent WKWebView. CALayer retains the decoded CGImage after this call,
+// so the Go byte buffer only needs to remain valid while NSData is created.
+static bool setPinShotWindowSnapshot(
+	void* nativeWindow,
+	const unsigned char* bytes,
+	size_t length
+) {
+	if (nativeWindow == NULL || bytes == NULL || length == 0) {
+		return false;
+	}
+	if (![NSThread isMainThread]) {
+		__block bool applied = false;
+		dispatch_sync(dispatch_get_main_queue(), ^{
+			applied = setPinShotWindowSnapshot(nativeWindow, bytes, length);
+		});
+		return applied;
+	}
+
+	NSWindow* window = (NSWindow*)nativeWindow;
+	NSView* contentView = window.contentView;
+	if (contentView == nil) {
+		return false;
+	}
+	NSData* data = [NSData dataWithBytes:bytes length:length];
+	NSImage* image = [[NSImage alloc] initWithData:data];
+	if (image == nil) {
+		return false;
+	}
+	CGImageRef cgImage = [image CGImageForProposedRect:NULL context:nil hints:nil];
+	if (cgImage == NULL) {
+		[image release];
+		return false;
+	}
+	contentView.wantsLayer = YES;
+	contentView.layer.contents = (id)cgImage;
+	contentView.layer.contentsGravity = kCAGravityResize;
+	contentView.layer.contentsScale = window.screen != nil
+		? window.screen.backingScaleFactor
+		: NSScreen.mainScreen.backingScaleFactor;
+	[image release];
+	return true;
+}
+
+// Wails normalises mixed-DPI display topology before exposing Screen.Bounds.
+// That coordinate space is useful for ordinary windows but can differ from
+// NSScreen.frame when displays have different scale factors or vertical
+// offsets. A capture overlay must match the physical display frame exactly.
+static bool setPinShotWindowDisplayBounds(void* nativeWindow, uint32_t displayID) {
+	if (nativeWindow == NULL || displayID == 0) {
+		return false;
+	}
+	if (![NSThread isMainThread]) {
+		__block bool applied = false;
+		dispatch_sync(dispatch_get_main_queue(), ^{
+			applied = setPinShotWindowDisplayBounds(nativeWindow, displayID);
+		});
+		return applied;
+	}
+	NSScreen* screen = pinShotScreenForDisplayID(displayID);
+	if (screen == nil) {
+		return false;
+	}
+	NSWindow* window = (NSWindow*)nativeWindow;
+	[window setFrame:screen.frame display:YES animate:NO];
+	pinShotLayoutWebView(window);
+	return true;
 }
 
 static bool setPinShotWindowBounds(
@@ -183,6 +264,8 @@ static PinShotSelectionData resolvePinShotSelection(
 	result.height = (int)llround(maxY - minY);
 
 	CGFloat backingScale = window.screen.backingScaleFactor;
+	result.pixelX = (int)llround(localLeft * backingScale);
+	result.pixelY = (int)llround(localTop * backingScale);
 	result.pixelWidth = (int)llround(result.width * backingScale);
 	result.pixelHeight = (int)llround(result.height * backingScale);
 	result.valid = result.width > 1 && result.height > 1 &&
@@ -192,10 +275,32 @@ static PinShotSelectionData resolvePinShotSelection(
 */
 import "C"
 
-import "unsafe"
+import (
+	"strconv"
+	"unsafe"
+)
 
 func ConfigurePinShotWindow(nativeWindow unsafe.Pointer) {
 	C.configurePinShotWindow(nativeWindow)
+}
+
+func SetPinShotWindowSnapshot(nativeWindow unsafe.Pointer, pngData []byte) bool {
+	if nativeWindow == nil || len(pngData) == 0 {
+		return false
+	}
+	return bool(C.setPinShotWindowSnapshot(
+		nativeWindow,
+		(*C.uchar)(unsafe.Pointer(&pngData[0])),
+		C.size_t(len(pngData)),
+	))
+}
+
+func SetPinShotWindowDisplayBounds(nativeWindow unsafe.Pointer, screenID string) bool {
+	displayID, err := strconv.ParseUint(screenID, 10, 32)
+	if err != nil || displayID == 0 {
+		return false
+	}
+	return bool(C.setPinShotWindowDisplayBounds(nativeWindow, C.uint32_t(displayID)))
 }
 
 func SetPinShotWindowBounds(
@@ -240,6 +345,8 @@ func ResolvePinShotSelection(
 		Y:           int(resolved.y),
 		Width:       int(resolved.width),
 		Height:      int(resolved.height),
+		PixelX:      int(resolved.pixelX),
+		PixelY:      int(resolved.pixelY),
 		PixelWidth:  int(resolved.pixelWidth),
 		PixelHeight: int(resolved.pixelHeight),
 	}, true

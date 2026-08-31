@@ -118,6 +118,7 @@ type App struct {
 	screenCaptureCompleting bool
 	screenCaptureWindows    []application.Window
 	screenCaptureWindowByID map[string]application.Window
+	screenCaptureSnapshots  map[string]platform.ScreenCaptureResult
 	screenCapturePurpose    screenCapturePurpose
 	screenCapturePlacement  *screenCapturePlacement
 	screenCaptureSourcePID  int
